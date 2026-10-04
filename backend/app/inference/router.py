@@ -1,10 +1,39 @@
-from backend.app.models.domain import Condition
 import numpy as np
 import cv2
+from typing import List, Tuple, Dict, Any
 
-class AdaptiveEnhancementRouter:
+from backend.app.core.interfaces import IAdaptiveRouter
+from backend.app.models.domain import (
+    CompoundCondition, 
+    IlluminationCondition, 
+    MotionCondition,
+    WeatherCondition
+)
+
+class AdaptiveEnhancementRouter(IAdaptiveRouter):
     def __init__(self):
+        # In a real system, these would be initialized models
         pass
+
+    def determine_pipeline(self, condition: CompoundCondition, visibility_data: Dict[str, Any] = None) -> List[str]:
+        pipeline = []
+        
+        if condition.illumination in [IlluminationCondition.LOW, IlluminationCondition.VERY_LOW]:
+            pipeline.append("LOW_LIGHT_ENHANCEMENT")
+            
+        if condition.illumination == IlluminationCondition.GLARE:
+            pipeline.append("GLARE_SUPPRESSION")
+            
+        if condition.weather in [WeatherCondition.RAIN, WeatherCondition.HEAVY_RAIN]:
+            pipeline.append("RAIN_ARTIFACT_REDUCTION")
+            
+        if condition.motion in [MotionCondition.MEDIUM, MotionCondition.HIGH]:
+            pipeline.append("MOTION_DEBLUR")
+            
+        # We always apply perspective rectification as a baseline step before OCR
+        pipeline.append("PERSPECTIVE_RECTIFICATION")
+        
+        return pipeline
 
     def apply_low_light_enhancement(self, image: np.ndarray) -> np.ndarray:
         # Baseline: CLAHE
@@ -27,25 +56,22 @@ class AdaptiveEnhancementRouter:
         unsharp_image = cv2.addWeighted(image, 1.5, gaussian_3, -0.5, 0, image)
         return unsharp_image
 
-    def route_and_enhance(self, image: np.ndarray, condition: Condition) -> tuple[np.ndarray, list[str]]:
-        enhancements_applied = []
-        enhanced_image = image.copy()
+    def execute_pipeline(self, frame: np.ndarray, pipeline: List[str]) -> Tuple[np.ndarray, List[str]]:
+        enhanced_image = frame.copy()
+        executed_steps = []
         
-        if condition in [Condition.LOW_LIGHT, Condition.EXTREME_LOW_LIGHT]:
-            enhanced_image = self.apply_low_light_enhancement(enhanced_image)
-            enhancements_applied.append("CLAHE_LOW_LIGHT")
-            
-        elif condition == Condition.GLARE:
-            enhanced_image = self.apply_glare_suppression(enhanced_image)
-            enhancements_applied.append("GLARE_SUPPRESSION")
-            
-        elif condition == Condition.MOTION_BLUR:
-            enhanced_image = self.apply_deblur(enhanced_image)
-            enhancements_applied.append("UNSHARP_MASKING")
-            
-        elif condition == Condition.MULTI_CONDITION:
-            enhanced_image = self.apply_low_light_enhancement(enhanced_image)
-            enhanced_image = self.apply_glare_suppression(enhanced_image)
-            enhancements_applied.append("MULTI_CLAHE_GLARE")
-            
-        return enhanced_image, enhancements_applied
+        for step in pipeline:
+            if step == "LOW_LIGHT_ENHANCEMENT":
+                enhanced_image = self.apply_low_light_enhancement(enhanced_image)
+                executed_steps.append(step)
+            elif step == "GLARE_SUPPRESSION":
+                enhanced_image = self.apply_glare_suppression(enhanced_image)
+                executed_steps.append(step)
+            elif step == "MOTION_DEBLUR":
+                enhanced_image = self.apply_deblur(enhanced_image)
+                executed_steps.append(step)
+            elif step == "PERSPECTIVE_RECTIFICATION":
+                # Stub: Normally requires 4 corner points of plate
+                executed_steps.append(step)
+                
+        return enhanced_image, executed_steps

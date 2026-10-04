@@ -1,19 +1,26 @@
 import cv2
 import numpy as np
-from backend.app.models.domain import QualityReport, Condition
+from typing import Dict
+from backend.app.core.interfaces import IConditionAnalyzer
+from backend.app.models.domain import (
+    CompoundCondition, 
+    IlluminationCondition, 
+    WeatherCondition, 
+    MotionCondition, 
+    CameraDegradation,
+    PhysicalObstruction
+)
 
-class SceneQualityAnalyzer:
+class SceneConditionAnalyzer(IConditionAnalyzer):
     def __init__(self):
         pass
 
     def estimate_blur(self, image: np.ndarray) -> float:
-        # Variance of Laplacian as a simple blur metric
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
         var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        # Normalize to 0-1 (heuristic scaling)
         return min(1.0, max(0.0, 1.0 - (var / 1000.0)))
 
     def estimate_brightness(self, image: np.ndarray) -> float:
@@ -28,42 +35,52 @@ class SceneQualityAnalyzer:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         else:
             gray = image
-        # Percentage of pixels near saturation
         saturated_pixels = np.sum(gray > 245)
         total_pixels = gray.size
         return saturated_pixels / total_pixels
 
-    def analyze(self, image: np.ndarray, plate_bbox=None) -> QualityReport:
-        if image is None or image.size == 0:
+    def get_quality_metrics(self, frame: np.ndarray) -> Dict[str, float]:
+        if frame is None or frame.size == 0:
             raise ValueError("Empty image provided to analyzer")
-            
-        blur = self.estimate_blur(image)
-        brightness = self.estimate_brightness(image)
-        glare = self.estimate_glare(image)
         
-        # Simple decision tree for Condition
-        condition = Condition.NORMAL
-        if brightness < 0.2:
-            condition = Condition.EXTREME_LOW_LIGHT
-        elif brightness < 0.4:
-            condition = Condition.LOW_LIGHT
-            if glare > 0.05:
-                condition = Condition.MULTI_CONDITION # LOW_LIGHT + GLARE
-        elif glare > 0.1:
-            condition = Condition.GLARE
-        elif blur > 0.7:
-            condition = Condition.MOTION_BLUR
-            
-        quality_score = ( (1.0 - blur) * 0.4 + brightness * 0.4 + (1.0 - glare) * 0.2 )
-        quality_score = min(1.0, max(0.0, quality_score))
-            
-        return QualityReport(
-            brightness=float(brightness),
-            contrast=0.5, # Stub
-            blur_score=float(blur),
-            noise=0.1, # Stub
-            glare=float(glare),
-            plate_resolution="HIGH" if image.shape[1] > 200 else "LOW",
-            condition=condition,
-            quality_score=float(quality_score)
+        return {
+            "blur": self.estimate_blur(frame),
+            "brightness": self.estimate_brightness(frame),
+            "glare": self.estimate_glare(frame),
+            "contrast": 0.5,  # Stub for future implementation
+            "noise": 0.1      # Stub for future implementation
+        }
+
+    def analyze_scene(self, frame: np.ndarray) -> CompoundCondition:
+        metrics = self.get_quality_metrics(frame)
+        
+        # Determine Illumination
+        illum = IlluminationCondition.NORMAL
+        if metrics["brightness"] < 0.2:
+            illum = IlluminationCondition.VERY_LOW
+        elif metrics["brightness"] < 0.4:
+            illum = IlluminationCondition.LOW
+        
+        if metrics["glare"] > 0.1:
+            illum = IlluminationCondition.GLARE
+
+        # Determine Motion
+        motion = MotionCondition.STATIC
+        if metrics["blur"] > 0.7:
+            motion = MotionCondition.HIGH
+        elif metrics["blur"] > 0.4:
+            motion = MotionCondition.MEDIUM
+
+        # Stubs for Weather & Degradation, normally driven by AI classification
+        weather = WeatherCondition.CLEAR
+        optics = CameraDegradation.NORMAL
+        
+        return CompoundCondition(
+            illumination=illum,
+            weather=weather,
+            motion=motion,
+            optics=optics,
+            occlusion=PhysicalObstruction.NONE,
+            camera_health="NORMAL",
+            compound_condition=True
         )
