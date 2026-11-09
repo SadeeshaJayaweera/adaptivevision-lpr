@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from sqlalchemy.orm import Session
 from typing import List
 from backend.app.database.database import get_db
+from backend.app.database.models import DBEventModel
 
 router = APIRouter()
 
@@ -17,7 +18,19 @@ async def reprocess_event():
 
 @router.get("/api/detections")
 async def get_detections(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return []
+    events = db.query(DBEventModel).order_by(DBEventModel.first_seen.desc()).offset(skip).limit(limit).all()
+    return [
+        {
+            "event_id": e.event_id,
+            "plate": e.plate,
+            "status": e.status,
+            "confidence": e.confidence,
+            "first_seen": str(e.first_seen),
+            "conditions": e.conditions or [],
+            "pipeline": e.pipeline or []
+        }
+        for e in events
+    ]
 
 @router.get("/api/detections/{detection_id}")
 async def get_detection(detection_id: str, db: Session = Depends(get_db)):

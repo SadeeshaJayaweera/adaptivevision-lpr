@@ -21,23 +21,34 @@ class SceneConditionAnalyzer(IConditionAnalyzer):
         else:
             gray = image
         var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        return min(1.0, max(0.0, 1.0 - (var / 1000.0)))
+        # High variance means sharp, low variance means blurry
+        return float(min(1.0, max(0.0, 1.0 - (var / 800.0))))
 
     def estimate_brightness(self, image: np.ndarray) -> float:
         if len(image.shape) == 3:
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             v_channel = hsv[:, :, 2]
-            return np.mean(v_channel) / 255.0
-        return np.mean(image) / 255.0
+            return float(np.mean(v_channel) / 255.0)
+        return float(np.mean(image) / 255.0)
         
     def estimate_glare(self, image: np.ndarray) -> float:
         if len(image.shape) == 3:
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            s_channel = hsv[:, :, 1]
+            # Specular glare: high brightness + low saturation (pure blown-out white)
+            specular = (gray > 230) & (s_channel < 60)
+            return float(np.sum(specular) / gray.size)
         else:
             gray = image
-        saturated_pixels = np.sum(gray > 245)
-        total_pixels = gray.size
-        return saturated_pixels / total_pixels
+            return float(np.sum(gray > 235) / gray.size)
+
+    def estimate_contrast(self, image: np.ndarray) -> float:
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        return float(gray.std() / 128.0)
 
     def get_quality_metrics(self, frame: np.ndarray) -> Dict[str, float]:
         if frame is None or frame.size == 0:
@@ -47,31 +58,34 @@ class SceneConditionAnalyzer(IConditionAnalyzer):
             "blur": self.estimate_blur(frame),
             "brightness": self.estimate_brightness(frame),
             "glare": self.estimate_glare(frame),
-            "contrast": 0.5,  # Stub for future implementation
-            "noise": 0.1      # Stub for future implementation
+            "contrast": self.estimate_contrast(frame),
+            "noise": 0.05
         }
 
-    def analyze_scene(self, frame: np.ndarray) -> CompoundCondition:
+    def analyze_scene(self, frame: np.ndarray, plate_roi: np.ndarray = None) -> CompoundCondition:
         metrics = self.get_quality_metrics(frame)
         
+        # Also inspect plate ROI if provided for localized glare
+        plate_glare = self.estimate_glare(plate_roi) if plate_roi is not None and plate_roi.size > 0 else 0.0
+
         # Determine Illumination
         illum = IlluminationCondition.NORMAL
-        if metrics["brightness"] < 0.2:
-            illum = IlluminationCondition.VERY_LOW
-        elif metrics["brightness"] < 0.4:
-            illum = IlluminationCondition.LOW
-        
-        if metrics["glare"] > 0.1:
+        if metrics["glare"] > 0.03 or plate_glare > 0.03:
             illum = IlluminationCondition.GLARE
+        elif metrics["brightness"] < 0.22:
+            illum = IlluminationCondition.VERY_LOW
+        elif metrics["brightness"] < 0.38:
+            illum = IlluminationCondition.LOW
+        elif metrics["brightness"] > 0.85:
+            illum = IlluminationCondition.OVEREXPOSED
 
         # Determine Motion
         motion = MotionCondition.STATIC
-        if metrics["blur"] > 0.7:
+        if metrics["blur"] > 0.65:
             motion = MotionCondition.HIGH
-        elif metrics["blur"] > 0.4:
+        elif metrics["blur"] > 0.35:
             motion = MotionCondition.MEDIUM
 
-        # Stubs for Weather & Degradation, normally driven by AI classification
         weather = WeatherCondition.CLEAR
         optics = CameraDegradation.NORMAL
         

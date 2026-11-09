@@ -33,3 +33,31 @@ data/processed/*
 !data/processed/.gitkeep
 data/annotations/*
 !data/annotations/.gitkeep
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/build/
+.npm/
+
+# Database & Cache
+*.db
+*.sqlite3
+adaptivevision.db
+
+# Machine Learning Checkpoints & Weights
+ml/models/
+*.pth
+*.pt
+*.onnx
+
+# Temporary scratch & OS
+scratch/
+.DS_Store
+Thumbs.db
+
+# Ensure documentation and screenshots are tracked
+!docs/
+!docs/**
+
+
