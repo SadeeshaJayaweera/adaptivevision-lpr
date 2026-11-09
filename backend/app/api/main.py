@@ -204,6 +204,15 @@ async def simulate_inference(file: UploadFile = File(...)):
         enhanced_crop_b64 = encode_image_base64(enhanced_crop)
         annotated_frame_b64 = encode_image_base64(annotated_frame)
         
+        # Generate Sauvola local binarized pixel view for crisp character inspection
+        gray_enh = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2GRAY)
+        th_sauv = cv2.blur(gray_enh.astype(np.float32), (21, 21))
+        sq_th = cv2.blur(gray_enh.astype(np.float32)**2, (21, 21))
+        std_th = np.sqrt(np.maximum(0, sq_th - th_sauv**2))
+        sauv_map = (gray_enh.astype(np.float32) > (th_sauv * (1.0 + 0.22 * ((std_th / 128.0) - 1.0)))) * 255
+        sauvola_crop = sauv_map.astype(np.uint8)
+        sauvola_b64 = encode_image_base64(cv2.cvtColor(sauvola_crop, cv2.COLOR_GRAY2BGR))
+        
         # Active Condition Tags
         active_conditions = []
         if condition.illumination.name != "NORMAL":
@@ -246,6 +255,7 @@ async def simulate_inference(file: UploadFile = File(...)):
             },
             "original_crop_preview": raw_crop_b64,
             "enhanced_plate_preview": enhanced_crop_b64,
+            "sauvola_crop_preview": sauvola_b64,
             "annotated_frame_preview": annotated_frame_b64,
             "message": f"Adaptive pipeline executed. Decision: {decision}"
         }

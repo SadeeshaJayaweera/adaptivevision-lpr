@@ -43,6 +43,7 @@ interface InferenceResult {
   };
   original_crop_preview?: string;
   enhanced_plate_preview: string;
+  sauvola_crop_preview?: string;
   annotated_frame_preview?: string;
   message: string;
 }
@@ -57,6 +58,9 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [dragOver, setDragOver] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null);
+  const [sliderPos, setSliderPos] = useState(50);
+  const [viewMode, setViewMode] = useState<'slider' | 'side-by-side' | 'sauvola'>('slider');
+  const [zoomLevel, setZoomLevel] = useState<'1x' | '2x' | '3x'>('1x');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const API_BASE = (typeof process !== 'undefined' && process.env?.REACT_APP_API_URL) || 'http://localhost:8000';
@@ -409,85 +413,236 @@ export default function App() {
                       End-to-end verified computer vision & deep learning pipeline: Glare Inpainting, Denoising, Contrast Normalization & Super-Resolution
                     </p>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span className={`status-badge ${getStatusClass(currentResult.status)}`}>
                       Decision: {currentResult.status}
                     </span>
                     {currentResult.enhanced_plate_preview && (
                       <button
                         className="btn"
-                        style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
+                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.8rem' }}
                         onClick={() => downloadImage(currentResult.enhanced_plate_preview, `enhanced_plate_${currentResult.plate || 'restored'}.png`)}
                       >
-                        ⬇ Download Enhanced Plate
+                        ⬇ Download Plate
+                      </button>
+                    )}
+                    {currentResult.sauvola_crop_preview && (
+                      <button
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.8rem' }}
+                        onClick={() => downloadImage(currentResult.sauvola_crop_preview!, `sauvola_mask_${currentResult.plate || 'pixels'}.png`)}
+                      >
+                        ⬇ Download Binary Mask
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* 3-Panel Visual Comparison Grid */}
-                <div className="ml-comparison-grid">
-                  {/* Panel 1: Vehicle Context & Localization */}
-                  <div className="ml-preview-card vehicle-context">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                      <strong style={{ fontSize: '0.9rem', color: '#93c5fd' }}>1. Vehicle Localization</strong>
-                      <span className="metric-label" style={{ fontSize: '0.75rem' }}>Full Scene</span>
-                    </div>
-                    <div className="preview-image-container">
-                      <span className="preview-badge badge-context">DETECTED BOUNDING BOX</span>
-                      <img
-                        src={currentResult.annotated_frame_preview || previewUrl || ''}
-                        alt="Vehicle Localization"
-                      />
-                    </div>
-                    <div className="metric-row" style={{ marginTop: '0.75rem' }}>
-                      <span className="metric-label">Localization Method</span>
-                      <span className="metric-value" style={{ fontSize: '0.8rem' }}>Adaptive Morphological Contour</span>
-                    </div>
+                {/* View Mode & Zoom Navigation Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '1rem 0 1.25rem 0', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      className={`view-mode-pill ${viewMode === 'slider' ? 'active' : ''}`}
+                      onClick={() => setViewMode('slider')}
+                    >
+                      ↔️ A/B Comparison Slider
+                    </button>
+                    <button
+                      className={`view-mode-pill ${viewMode === 'side-by-side' ? 'active' : ''}`}
+                      onClick={() => setViewMode('side-by-side')}
+                    >
+                      📊 3-Panel Inspection
+                    </button>
+                    <button
+                      className={`view-mode-pill ${viewMode === 'sauvola' ? 'active' : ''}`}
+                      onClick={() => setViewMode('sauvola')}
+                    >
+                      🔬 Sauvola Binary Pixels
+                    </button>
                   </div>
 
-                  {/* Panel 2: Raw Sensor Crop (Degraded) */}
-                  <div className="ml-preview-card raw-degraded">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                      <strong style={{ fontSize: '0.9rem', color: '#fca5a5' }}>2. Raw Sensor Crop (Degraded)</strong>
-                      <span className="metric-label" style={{ fontSize: '0.75rem' }}>Camera Sensor</span>
-                    </div>
-                    <div className="preview-image-container">
-                      <span className="preview-badge badge-degraded">RAW DEGRADATION / GLARE</span>
-                      <img
-                        src={currentResult.original_crop_preview || previewUrl || ''}
-                        alt="Raw Degraded Plate"
-                      />
-                    </div>
-                    <div className="metric-row" style={{ marginTop: '0.75rem' }}>
-                      <span className="metric-label">Detected Glare Index</span>
-                      <span className="metric-value" style={{ fontSize: '0.8rem', color: currentResult.quality_metrics.glare > 0.05 ? 'var(--warning)' : 'var(--text-muted)' }}>
-                        {(currentResult.quality_metrics.glare * 100).toFixed(1)}% {currentResult.quality_metrics.glare > 0.05 ? '(Glare Active)' : ''}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Panel 3: Machine Learning Enhanced Plate (Crisp & Readable) */}
-                  <div className="ml-preview-card enhanced">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                      <strong style={{ fontSize: '0.9rem', color: '#6ee7b7' }}>3. ML-Optimized Plate (Crisp Letters)</strong>
-                      <span className="metric-label" style={{ fontSize: '0.75rem' }}>Enhanced Output</span>
-                    </div>
-                    <div className="preview-image-container">
-                      <span className="preview-badge badge-enhanced">ML INPAINTED & RESTORED</span>
-                      <img
-                        src={currentResult.enhanced_plate_preview}
-                        alt="Enhanced Number Plate"
-                      />
-                    </div>
-                    <div className="metric-row" style={{ marginTop: '0.75rem' }}>
-                      <span className="metric-label">OCR Recognition Score</span>
-                      <span className="metric-value" style={{ fontSize: '0.8rem', color: 'var(--success)' }}>
-                        {(currentResult.confidence * 100).toFixed(1)}% Confidence
-                      </span>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Pixel Zoom:</span>
+                    {(['1x', '2x', '3x'] as const).map(z => (
+                      <button
+                        key={z}
+                        className={`view-mode-pill ${zoomLevel === z ? 'active' : ''}`}
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.72rem' }}
+                        onClick={() => setZoomLevel(z)}
+                      >
+                        {z}
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+                {/* VIEW MODE 1: Interactive Drag A/B Split Comparison Slider */}
+                {viewMode === 'slider' && (
+                  <div style={{ padding: '0.5rem 0' }}>
+                    <div
+                      className="interactive-slider-box"
+                      style={{
+                        transform: zoomLevel === '2x' ? 'scale(1.15)' : zoomLevel === '3x' ? 'scale(1.3)' : 'scale(1)',
+                        transformOrigin: 'center center',
+                        transition: 'transform 0.2s',
+                        height: '210px'
+                      }}
+                    >
+                      {/* Layer 1: Enhanced (Full background) */}
+                      <div className="slider-layer">
+                        <img src={currentResult.enhanced_plate_preview} alt="ML-Enhanced Plate" />
+                        <span className="preview-badge badge-enhanced" style={{ right: 10, left: 'auto' }}>
+                          ML-OPTIMIZED (SHARP PIXELS)
+                        </span>
+                      </div>
+
+                      {/* Layer 2: Raw / Degraded (Clipped to sliderPos %) */}
+                      <div
+                        className="slider-layer"
+                        style={{
+                          clipPath: `polygon(0 0, ${sliderPos}% 0, ${sliderPos}% 100%, 0 100%)`
+                        }}
+                      >
+                        <img
+                          src={currentResult.original_crop_preview || previewUrl || ''}
+                          alt="Raw Degraded Sensor"
+                        />
+                        <span className="preview-badge badge-degraded">
+                          RAW SENSOR DEGRADED / BLURRED
+                        </span>
+                      </div>
+
+                      {/* Slider Divider Line */}
+                      <div className="slider-handle-line" style={{ left: `${sliderPos}%` }}>
+                        <div className="slider-handle-circle">↔</div>
+                      </div>
+
+                      {/* Range Input for dragging */}
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={sliderPos}
+                        onChange={(e) => setSliderPos(Number(e.target.value))}
+                        className="slider-range-input"
+                        title="Drag left/right to compare raw vs ML enhanced"
+                      />
+                    </div>
+                    <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                      Drag slider left/right to compare <strong>Raw Degraded Sensor</strong> (Left) vs <strong>ML-Reconstructed Pixels</strong> (Right)
+                    </div>
+                  </div>
+                )}
+
+                {/* VIEW MODE 2: 3-Panel Visual Comparison Grid */}
+                {viewMode === 'side-by-side' && (
+                  <div className="ml-comparison-grid">
+                    {/* Panel 1: Vehicle Context & Localization */}
+                    <div className="ml-preview-card vehicle-context">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#93c5fd' }}>1. Vehicle Localization</strong>
+                        <span className="metric-label" style={{ fontSize: '0.75rem' }}>Full Scene</span>
+                      </div>
+                      <div className="preview-image-container">
+                        <span className="preview-badge badge-context">DETECTED BOUNDING BOX</span>
+                        <img
+                          src={currentResult.annotated_frame_preview || previewUrl || ''}
+                          alt="Vehicle Localization"
+                        />
+                      </div>
+                      <div className="metric-row" style={{ marginTop: '0.75rem' }}>
+                        <span className="metric-label">Localization Method</span>
+                        <span className="metric-value" style={{ fontSize: '0.8rem' }}>Adaptive Morphological Contour</span>
+                      </div>
+                    </div>
+
+                    {/* Panel 2: Raw Sensor Crop (Degraded) */}
+                    <div className="ml-preview-card raw-degraded">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#fca5a5' }}>2. Raw Sensor Crop (Degraded)</strong>
+                        <span className="metric-label" style={{ fontSize: '0.75rem' }}>Camera Sensor</span>
+                      </div>
+                      <div className="preview-image-container">
+                        <span className="preview-badge badge-degraded">RAW DEGRADATION / GLARE</span>
+                        <img
+                          src={currentResult.original_crop_preview || previewUrl || ''}
+                          alt="Raw Degraded Plate"
+                        />
+                      </div>
+                      <div className="metric-row" style={{ marginTop: '0.75rem' }}>
+                        <span className="metric-label">Detected Glare Index</span>
+                        <span className="metric-value" style={{ fontSize: '0.8rem', color: currentResult.quality_metrics.glare > 0.05 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                          {(currentResult.quality_metrics.glare * 100).toFixed(1)}% {currentResult.quality_metrics.glare > 0.05 ? '(Glare Active)' : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Panel 3: Machine Learning Enhanced Plate (Crisp & Readable) */}
+                    <div className="ml-preview-card enhanced">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#6ee7b7' }}>3. ML-Optimized Plate (Crisp Letters)</strong>
+                        <span className="metric-label" style={{ fontSize: '0.75rem' }}>Enhanced Output</span>
+                      </div>
+                      <div className="preview-image-container">
+                        <span className="preview-badge badge-enhanced">ML INPAINTED & RESTORED</span>
+                        <img
+                          src={currentResult.enhanced_plate_preview}
+                          alt="Enhanced Number Plate"
+                        />
+                      </div>
+                      <div className="metric-row" style={{ marginTop: '0.75rem' }}>
+                        <span className="metric-label">OCR Recognition Score</span>
+                        <span className="metric-value" style={{ fontSize: '0.8rem', color: 'var(--success)' }}>
+                          {(currentResult.confidence * 100).toFixed(1)}% Confidence
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* VIEW MODE 3: Sauvola Local Binary Character Mask */}
+                {viewMode === 'sauvola' && (
+                  <div className="ml-comparison-grid">
+                    <div className="ml-preview-card enhanced">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#6ee7b7' }}>Reconstructed Color Plate</strong>
+                        <span className="metric-label" style={{ fontSize: '0.75rem' }}>Deblurred & Super-Resolved</span>
+                      </div>
+                      <div className="preview-image-container" style={{ height: '180px' }}>
+                        <span className="preview-badge badge-enhanced">WIENER + CLAHE + INPAINT</span>
+                        <img
+                          src={currentResult.enhanced_plate_preview}
+                          alt="Enhanced RGB"
+                          style={{
+                            transform: zoomLevel === '2x' ? 'scale(1.4)' : zoomLevel === '3x' ? 'scale(1.8)' : 'scale(1)',
+                            transition: 'transform 0.2s'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ml-preview-card" style={{ border: '1px solid rgba(139, 92, 246, 0.4)', background: 'rgba(76, 29, 149, 0.15)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                        <strong style={{ fontSize: '0.9rem', color: '#c4b5fd' }}>Sauvola Binary Character Pixels</strong>
+                        <span className="metric-label" style={{ fontSize: '0.75rem' }}>Local Window Binarization</span>
+                      </div>
+                      <div className="preview-image-container" style={{ height: '180px', background: '#fff' }}>
+                        <span className="preview-badge" style={{ background: 'rgba(124, 58, 237, 0.9)', color: 'white' }}>
+                          ISOLATED CHARACTER STROKES
+                        </span>
+                        <img
+                          src={currentResult.sauvola_crop_preview || currentResult.enhanced_plate_preview}
+                          alt="Sauvola Binary Mask"
+                          style={{
+                            transform: zoomLevel === '2x' ? 'scale(1.4)' : zoomLevel === '3x' ? 'scale(1.8)' : 'scale(1)',
+                            transition: 'transform 0.2s',
+                            filter: 'contrast(1.2)'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Filter Pipeline Badges */}
                 <div style={{ marginTop: '1.5rem', background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '12px' }}>
